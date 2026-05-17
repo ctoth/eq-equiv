@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "eq-equiv"
+version = "0.1.0"
+description = "Equation parsing and equivalence comparison"
+requires-python = ">=3.11"
+license = "MIT"
+readme = "README.md"
+dependencies = [
+    "lark>=1.2.2",
+    "sympy>=1.14.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "hypothesis", "pyright"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "property: Hypothesis-backed property tests",
+]
+
+[tool.pyright]
+include = ["eq_equiv"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["eq_equiv"]
