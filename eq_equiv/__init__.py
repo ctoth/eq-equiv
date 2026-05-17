@@ -31,6 +31,14 @@ from eq_equiv.parser import (
     render_equation,
     split_equation_relation,
 )
+from eq_equiv.sympy_generation import (
+    SympyEquationGenerationResult,
+    SympyGenerationResult,
+    check_symbols,
+    generate_sympy_equation,
+    generate_sympy_rhs,
+    generate_sympy_rhs_with_error,
+)
 
 __all__ = [
     "BinaryExpr",
@@ -51,10 +59,16 @@ __all__ = [
     "Positive",
     "Real",
     "SymbolExpr",
+    "SympyEquationGenerationResult",
+    "SympyGenerationResult",
     "UnaryExpr",
     "canonicalize_equation",
+    "check_symbols",
     "compare_equations",
     "equation_signature",
+    "generate_sympy_equation",
+    "generate_sympy_rhs",
+    "generate_sympy_rhs_with_error",
     "normalized_number_token",
     "parse_equation",
     "render_equation",
