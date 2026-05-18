@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 from functools import lru_cache
-from typing import Any, Sequence, cast
+from typing import TYPE_CHECKING, Any, cast
+
+import sympy
 
 from eq_equiv.parser import (
     BinaryExpr,
@@ -23,11 +26,13 @@ from eq_equiv.parser import (
     structural_signature as ast_structural_signature,
 )
 
+if TYPE_CHECKING:
+    from sympy import Expr
+
 
 @dataclass(frozen=True)
 class BoundEquation:
     expression: str | None = None
-    sympy: str | None = None
     variables: tuple[EquationSymbolBinding, ...] = ()
 
 
@@ -36,7 +41,7 @@ class EquationNormalization:
     canonical: str
     source_text: str
     structural_signature: str
-    residual: object | None = None
+    residual: Expr | None = None
     domain_sensitive: bool = False
 
 
@@ -86,7 +91,9 @@ class Integer(DomainAssumption):
     pass
 
 
-_sympy = None
+def clear_normalization_cache() -> None:
+    """Clear the internal equation-normalization cache."""
+    _normalize_equation_text.cache_clear()
 
 
 def equation_signature(equation: BoundEquation) -> tuple[str, tuple[str, ...]] | None:
@@ -115,7 +122,7 @@ def canonicalize_equation(
     if source_text is None:
         return EquationFailure(
             code=EquationFailureCode.MISSING_EQUATION_TEXT,
-            detail="equation has neither expression nor sympy text",
+            detail="equation has no expression text",
         )
 
     return _normalize_equation_text(source_text, bindings)
@@ -159,7 +166,7 @@ def _canonicalize_equation(
     if source_text is None:
         return EquationFailure(
             code=EquationFailureCode.MISSING_EQUATION_TEXT,
-            detail="equation has neither expression nor sympy text",
+            detail="equation has no expression text",
         )
 
     return _normalize_equation_text(source_text, bindings, domain_assumptions)
@@ -198,8 +205,6 @@ def _equation_bindings(
 def _equation_source_text(equation: BoundEquation) -> str | None:
     if isinstance(equation.expression, str) and equation.expression.strip():
         return equation.expression.strip()
-    if isinstance(equation.sympy, str) and equation.sympy.strip():
-        return equation.sympy.strip()
     return None
 
 
@@ -219,19 +224,13 @@ def _normalize_parsed_equation(
     parsed: ParsedEquation,
     domain_assumptions: tuple[DomainAssumption, ...] = (),
 ) -> EquationNormalization | EquationFailure:
-    sympy = _get_sympy()
-    if sympy is None:
-        return EquationFailure(
-            code=EquationFailureCode.SYMPY_UNAVAILABLE,
-            detail="sympy is not available",
-        )
     assumptions = _domain_assumptions_by_symbol(domain_assumptions)
-    lhs = _expr_to_sympy(parsed.lhs, sympy, assumptions)
-    rhs = _expr_to_sympy(parsed.rhs, sympy, assumptions)
+    lhs = _expr_to_sympy(parsed.lhs, assumptions)
+    rhs = _expr_to_sympy(parsed.rhs, assumptions)
     raw_diff = lhs - rhs
-    domain_sensitive = _has_domain_sensitive_functions(raw_diff, sympy)
-    diff = _simplify_residual(raw_diff, sympy, domain_assumptions)
-    canonical = _canonical_residual(diff, sympy)
+    domain_sensitive = _has_domain_sensitive_functions(raw_diff)
+    diff = _simplify_residual(raw_diff)
+    canonical = _canonical_residual(diff)
     structure = (
         ast_structural_signature(parsed.lhs)
         + " = "
@@ -248,22 +247,21 @@ def _normalize_parsed_equation(
 
 def _expr_to_sympy(
     expression: EquationExpr,
-    sympy,
     assumptions: dict[str, dict[str, bool]],
-):
+) -> Expr:
     if isinstance(expression, NumberExpr):
-        return _sympy_number(expression.token, sympy)
+        return _sympy_number(expression.token)
     if isinstance(expression, SymbolExpr):
         symbol_assumptions = assumptions.get(expression.symbol)
         if symbol_assumptions is None:
             symbol_assumptions = assumptions.get(expression.concept_id, {})
         return sympy.Symbol(expression.concept_id, **symbol_assumptions)
     if isinstance(expression, UnaryExpr):
-        operand = _expr_to_sympy(expression.operand, sympy, assumptions)
+        operand = _expr_to_sympy(expression.operand, assumptions)
         return operand if expression.operator == "+" else -operand
     if isinstance(expression, BinaryExpr):
-        left = _expr_to_sympy(expression.left, sympy, assumptions)
-        right = _expr_to_sympy(expression.right, sympy, assumptions)
+        left = _expr_to_sympy(expression.left, assumptions)
+        right = _expr_to_sympy(expression.right, assumptions)
         if expression.operator == "+":
             return left + right
         if expression.operator == "-":
@@ -276,7 +274,7 @@ def _expr_to_sympy(
             return left**right
         raise ValueError(f"unsupported operator: {expression.operator}")
     if isinstance(expression, FunctionExpr):
-        argument = _expr_to_sympy(expression.arguments[0], sympy, assumptions)
+        argument = _expr_to_sympy(expression.arguments[0], assumptions)
         if expression.name == "abs":
             return sympy.Abs(argument)
         if expression.name in {"log", "ln"}:
@@ -306,13 +304,13 @@ def _domain_assumptions_by_symbol(
     return result
 
 
-def _simplify_residual(expr, sympy, assumptions: tuple[DomainAssumption, ...]):
-    simplified = sympy.powsimp(expr, force=bool(assumptions))
-    simplified = sympy.logcombine(simplified, force=bool(assumptions))
+def _simplify_residual(expr: Expr) -> Expr:
+    simplified = sympy.powsimp(expr)
+    simplified = sympy.logcombine(simplified)
     return sympy.simplify(sympy.cancel(sympy.expand(simplified)))
 
 
-def _canonical_residual(expr, sympy) -> str:
+def _canonical_residual(expr: Expr) -> str:
     expr = sympy.cancel(sympy.expand(expr))
     symbols = sorted(expr.free_symbols, key=lambda symbol: str(symbol))
     if symbols:
@@ -322,7 +320,7 @@ def _canonical_residual(expr, sympy) -> str:
             return min(str(expr), str(-expr))
         _content, primitive = poly.primitive()
         expr = primitive.as_expr()
-    terms = expr.as_ordered_terms()
+    terms = cast(list[Any], expr.as_ordered_terms())
     if terms and terms[0].could_extract_minus_sign():
         expr = -expr
     return str(expr)
@@ -337,39 +335,31 @@ def _compare_normalizations(
         if not assumptions and (left.domain_sensitive or right.domain_sensitive):
             return EquationComparisonStatus.UNKNOWN
         return EquationComparisonStatus.EQUIVALENT
-    sympy = _get_sympy()
-    if sympy is None or left.residual is None or right.residual is None:
+    if left.residual is None or right.residual is None:
         return EquationComparisonStatus.UNKNOWN
     residual_delta = cast(Any, left.residual) - cast(Any, right.residual)
-    delta = _simplify_residual(residual_delta, sympy, assumptions)
+    delta = _simplify_residual(residual_delta)
     if delta == 0:
         if not assumptions and (left.domain_sensitive or right.domain_sensitive):
             return EquationComparisonStatus.UNKNOWN
         return EquationComparisonStatus.EQUIVALENT
     if not assumptions and (left.domain_sensitive or right.domain_sensitive):
-        positive_assumptions = tuple(
-            Positive(str(symbol)) for symbol in sorted(delta.free_symbols, key=str)
-        )
-        positive_delta = _simplify_residual(
-            _with_positive_symbols(residual_delta, sympy),
-            sympy,
-            positive_assumptions,
-        )
+        positive_delta = _simplify_residual(_with_positive_symbols(residual_delta))
         if positive_delta == 0:
             return EquationComparisonStatus.UNKNOWN
         return EquationComparisonStatus.DIFFERENT
     if assumptions:
         return EquationComparisonStatus.DIFFERENT
-    if _is_polynomial(delta, sympy):
+    if _is_polynomial(delta):
         return EquationComparisonStatus.DIFFERENT
     return EquationComparisonStatus.UNKNOWN
 
 
-def _has_domain_sensitive_functions(expr, sympy) -> bool:
+def _has_domain_sensitive_functions(expr: Expr) -> bool:
     return bool(expr.atoms(sympy.Function))
 
 
-def _with_positive_symbols(expr, sympy):
+def _with_positive_symbols(expr: Expr) -> Expr:
     replacements = {
         symbol: sympy.Symbol(str(symbol), positive=True, finite=True)
         for symbol in expr.free_symbols
@@ -377,7 +367,7 @@ def _with_positive_symbols(expr, sympy):
     return expr.xreplace(replacements)
 
 
-def _is_polynomial(expr, sympy) -> bool:
+def _is_polynomial(expr: Expr) -> bool:
     symbols = sorted(expr.free_symbols, key=lambda symbol: str(symbol))
     if not symbols:
         return True
@@ -388,21 +378,7 @@ def _is_polynomial(expr, sympy) -> bool:
     return True
 
 
-def _sympy_number(token: str, sympy):
+def _sympy_number(token: str) -> Expr:
     if "." in token or "e" in token.lower():
         return sympy.Rational(str(Decimal(token)))
     return sympy.Integer(int(token))
-
-
-def _get_sympy():
-    global _sympy
-    if _sympy is None:
-        try:
-            import sympy as sympy_module
-        except ImportError:
-            _sympy = False
-            return None
-        _sympy = sympy_module
-    if _sympy is False:
-        return None
-    return _sympy

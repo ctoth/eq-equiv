@@ -25,6 +25,8 @@ markers = [
 
 [tool.pyright]
 include = ["eq_equiv"]
+venvPath = "."
+venv = ".venv"
 
 [tool.hatch.build.targets.wheel]
 packages = ["eq_equiv"]

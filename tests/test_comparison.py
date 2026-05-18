@@ -13,12 +13,12 @@ from eq_equiv import (
     equation_signature,
     structural_signature,
 )
+from eq_equiv.comparison import clear_normalization_cache
 
 
 def _make_equation(
     *,
     expression: str | None = None,
-    sympy: str | None = None,
     variables: tuple[EquationSymbolBinding, ...] | None = None,
 ) -> BoundEquation:
     resolved_variables: tuple[EquationSymbolBinding, ...]
@@ -31,7 +31,6 @@ def _make_equation(
         resolved_variables = variables
     return BoundEquation(
         expression=expression,
-        sympy=sympy,
         variables=resolved_variables,
     )
 
@@ -58,20 +57,11 @@ def test_missing_variables_is_explicit_failure() -> None:
 
 
 def test_missing_equation_text_is_explicit_failure() -> None:
-    result = canonicalize_equation(_make_equation(expression=None, sympy=None))
+    result = canonicalize_equation(_make_equation(expression=None))
 
     assert result == EquationFailure(
         code=EquationFailureCode.MISSING_EQUATION_TEXT,
-        detail="equation has neither expression nor sympy text",
-    )
-
-
-def test_raw_sympy_eq_text_is_not_executable_input() -> None:
-    result = canonicalize_equation(_make_equation(expression=None, sympy="Eq(x, 2*y)"))
-
-    assert result == EquationFailure(
-        code=EquationFailureCode.INVALID_RELATION,
-        detail="equation must contain exactly one '=' and no other relation operators",
+        detail="equation has no expression text",
     )
 
 
@@ -108,7 +98,7 @@ def test_structural_signature_is_alpha_invariant() -> None:
 
 
 def test_normalization_cache_reuses_same_equation_key() -> None:
-    equation_comparison._normalize_equation_text.cache_clear()
+    clear_normalization_cache()
 
     equation = _make_equation(expression="x = 2*y")
     first = canonicalize_equation(equation)
@@ -117,21 +107,3 @@ def test_normalization_cache_reuses_same_equation_key() -> None:
     assert isinstance(first, EquationNormalization)
     assert second == first
     assert equation_comparison._normalize_equation_text.cache_info().hits >= 1
-
-
-def test_sympy_is_lazy_loaded() -> None:
-    original_sympy = equation_comparison._sympy
-    equation_comparison._sympy = None
-    equation_comparison._normalize_equation_text.cache_clear()
-    assert equation_comparison._sympy is None
-
-    loaded_sympy = None
-    try:
-        result = equation_comparison.canonicalize_equation(_make_equation(expression="x = 2*y"))
-        loaded_sympy = equation_comparison._sympy
-    finally:
-        equation_comparison._normalize_equation_text.cache_clear()
-        equation_comparison._sympy = original_sympy
-
-    assert isinstance(result, EquationNormalization)
-    assert loaded_sympy is not None

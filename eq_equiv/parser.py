@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 from functools import lru_cache
-from typing import cast
+from typing import TypeAlias, cast
 
 from lark import Lark, Transformer, UnexpectedInput
 from lark.exceptions import VisitError
@@ -18,7 +18,6 @@ class EquationFailureCode(StrEnum):
     UNKNOWN_SYMBOL = "unknown_symbol"
     PARSE_ERROR = "parse_error"
     UNSUPPORTED_SURFACE = "unsupported_surface"
-    SYMPY_UNAVAILABLE = "sympy_unavailable"
 
 
 @dataclass(frozen=True)
@@ -64,7 +63,7 @@ class FunctionExpr:
     arguments: tuple[EquationExpr, ...]
 
 
-type EquationExpr = NumberExpr | SymbolExpr | UnaryExpr | BinaryExpr | FunctionExpr
+EquationExpr: TypeAlias = NumberExpr | SymbolExpr | UnaryExpr | BinaryExpr | FunctionExpr
 
 
 @dataclass(frozen=True)
@@ -146,7 +145,7 @@ class _EquationTransformer(Transformer):
             else:
                 args = ()
         if len(args) != 1:
-            raise ValueError(f"function {name} expects exactly one argument")
+            raise NotImplementedError(f"function {name} expects exactly one argument")
         return FunctionExpr(name=name, arguments=args)
 
     def arguments(self, items: list[object]) -> tuple[EquationExpr, ...]:
@@ -207,7 +206,7 @@ def split_equation_relation(source_text: str) -> tuple[str, str] | EquationFailu
             code=EquationFailureCode.MISSING_EQUATION_TEXT,
             detail="equation text is empty",
         )
-    if any(token in text for token in ("==", "<=", ">=", "<", ">")):
+    if any(token in text for token in ("==", "!=", "<=", ">=", "<", ">")):
         return EquationFailure(
             code=EquationFailureCode.INVALID_RELATION,
             detail="equation must contain exactly one '=' and no other relation operators",

@@ -33,11 +33,14 @@ Domain-sensitive identities return `UNKNOWN` unless the caller supplies the
 needed assumptions. For example, `log(x * y) = z` and
 `log(x) + log(y) = z` require positive assumptions for `x` and `y`.
 
-## SymPy Generation
+## Related
 
-`generate_sympy_rhs` and `generate_sympy_rhs_with_error` intentionally return a
-right-hand-side expression. `generate_sympy_equation` preserves both sides when
-callers need equation identity.
+For converting human-typed equation strings (with `^`, broad function names,
+constants like `pi`) into canonical SymPy expression strings, see the sibling
+package [`human-to-sympy`](https://github.com/ctoth/human-to-sympy). It is
+deliberately a separate library — `eq-equiv` deals with semantic equivalence
+over a narrow grammar; `human-to-sympy` deals with surface translation into
+SymPy. They do not depend on each other.
 
 ## Example
 
